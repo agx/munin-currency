@@ -1,0 +1,102 @@
+#!/usr/bin/python
+# vim: set fileencoding=utf-8 :
+#
+# Munin plugin to monitor currency exchange rates using the
+# yahoo finance api
+#
+# Copyright 2015 Guido Günther <agx@sigxcpu.org>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# depends: python-requests
+#
+#%# capabilities=autoconf
+#%# family=contrib
+
+import requests
+import os
+import re
+import sys
+from xml.etree import ElementTree
+
+url_pattern = 'https://query.yahooapis.com/v1/public/yql?q=select%%20*%%20from%%20yahoo.finance.xchange%%20where%%20pair%%20in%%20%%28%%22%s%%22%%29&env=store://datatables.org/alltableswithkeys'
+
+def print_config(url):
+    out = fetch_raw(url)
+    xml = ElementTree.XML(out)
+    namexml = xml.find('./results/rate/Name')
+    f, t = namexml.text.split('/')
+
+    print """graph_title Currency exchange rate %s to %s
+graph_vlabel %s
+graph_category Finance
+graph_info This graph shows the currency exchange rate between %s and %s""" % (f,t,t,f,t)
+
+    print "%s%s_rate.label %s/%s (rate)" % (f, t, f, t)
+    print "%s%s_rate.type GAUGE" % (f, t)
+    print "%s%s_rate.draw LINE1" % (f, t)
+    print "%s%s_ask.label %s/%s (ask)" % (f, t, f, t)
+    print "%s%s_ask.type GAUGE" % (f, t)
+    print "%s%s_ask.draw LINE1" % (f, t)
+    print "%s%s_bid.label %s/%s (bid)" % (f, t, f, t)
+    print "%s%s_bid.type GAUGE" % (f, t)
+    print "%s%s_bid.draw LINE1" % (f, t)
+
+def fetch_raw(url):
+    # The items to fetch are passed as simple json string
+    r = requests.get(url)
+    return r.text
+
+def fetch_values(url):
+    out = fetch_raw(url)
+    xml = ElementTree.XML(out)
+    namexml = xml.find('./results/rate/Name')
+    f, t = namexml.text.split('/')
+    rate = xml.find('./results/rate/Rate').text
+    ask = xml.find('./results/rate/Ask').text
+    bid = xml.find('./results/rate/Bid').text
+    print "%s%s_rate.value %s" % (f, t, rate)
+    print "%s%s_ask.value %s" % (f, t, ask)
+    print "%s%s_bid.value %s" % (f, t, bid)
+
+
+def main(args):
+    exchange = sys.argv[0].rsplit('_')[-1].upper()
+    url = url_pattern % exchange
+    if len(args) > 1:
+        if args[1] in [ 'autoconf', 'detect' ]:
+            try:
+                fetch_raw(url)
+                print "yes"
+                return 0
+            except:
+                print "no"
+                return 1
+        elif args[1] == 'config':
+            try:
+                print_config(url)
+            except Exception as e:
+                print >>sys.stderr, "Failed to fetch config: '%s'" % e
+                return 1
+            return 0
+    try:
+        fetch_values(url)
+    except Exception as e:
+        print >>sys.stderr, "Failed to fetch values: '%s'" % e
+        return 1
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
